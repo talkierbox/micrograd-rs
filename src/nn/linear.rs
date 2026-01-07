@@ -1,4 +1,5 @@
 use super::nn_module::NNModule;
+use super::super::util::dot::flat_matrix_vector_dot;
 
 pub struct LinearLayer<const INPUT_DIM: usize, const OUTPUT_DIM: usize> {
     pub weights: Vec<f32>,  // Size: INPUT_DIM * OUTPUT_DIM
@@ -22,20 +23,6 @@ impl<const INPUT_DIM: usize, const OUTPUT_DIM: usize> LinearLayer<INPUT_DIM, OUT
     }
 }
 
-// TODO: Parallelize this
-fn dot(matrix: &[f32], vec: &[f32], start_idx: usize) -> Result<f32, &'static str> {
-    let mut res: f32 = 0.0;
-
-    for i in 0..vec.len() {
-        if start_idx + i >= matrix.len() {
-            return Err("Index out of bounds of the matrix!");
-        }
-
-        res += vec[i] * matrix[start_idx + i];
-    }
-
-    Ok(res)
-}
 
 impl<const INPUT_DIM: usize, const OUTPUT_DIM: usize> NNModule<INPUT_DIM, OUTPUT_DIM> for LinearLayer<INPUT_DIM, OUTPUT_DIM> {
     fn _validate_dimensions(&self) {
@@ -66,7 +53,7 @@ impl<const INPUT_DIM: usize, const OUTPUT_DIM: usize> NNModule<INPUT_DIM, OUTPUT
         for i in 0..num_rows {
             // Get this row and dot product it with input 
             let offset = i * num_cols;
-            res[i] = dot(&self.weights, input, offset)
+            res[i] = flat_matrix_vector_dot(&self.weights, input, offset)
                 .expect("Matrix-vector multiplication bounds check failed - this indicates a programming error")
                 + (if self.bias_enabled { self.biases[i] } else {0.0});
         }       

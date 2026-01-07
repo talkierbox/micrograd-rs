@@ -1,11 +1,11 @@
-use super::activation::Activation;
+use super::activation::ActivationType;
 use super::nn_module::NNModule;
 
 pub struct MLPSpecification {
     input_dim: usize,
     hidden_dims: Vec<usize>,
     output_dim: usize,
-    activation: Activation,
+    activation: ActivationType,
 }
 
 // Type-erased module that can store modules with different dimensions
@@ -59,6 +59,8 @@ impl <const INPUT_DIM: usize, const OUTPUT_DIM: usize> MLP<INPUT_DIM, OUTPUT_DIM
     pub fn new(spec: MLPSpecification) -> Self {
         assert_eq!(spec.input_dim, INPUT_DIM, "Input dim must match const generic");
         assert_eq!(spec.output_dim, OUTPUT_DIM, "Output dim must match const generic");
+
+        // Also make sure to implement the weight initialization using Xavier
         todo!("Implement this!");
     }
 
