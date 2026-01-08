@@ -1,2 +1,3 @@
-pub mod optimizer;
-pub mod gd;
+mod sgd;
+
+pub use sgd::SGD;

@@ -5,7 +5,7 @@ mod optimizer;
 
 use nn::Sequential;
 use loss::mse::MSELoss;
-use loss::loss_function::LossFunction;
+use optimizer::SGD;
 
 fn main() {
     // XOR dataset
@@ -23,26 +23,14 @@ fn main() {
         .linear(1);
     
     let loss_fn = MSELoss::new();
-    let lr = 0.1;
+    let optimizer = SGD::new(0.1);
     
     // Training loop
     for epoch in 0..1000 {
         let mut total_loss = 0.0;
         
         for (input, target) in &data {
-            model.zero_grad();
-            
-            let pred = model.forward(input);
-            total_loss += loss_fn.compute_loss(&pred, target);
-            
-            let grad = loss_fn.compute_gradient(&pred, target);
-            model.backward(&grad);
-            
-            // SGD update
-            let grads: Vec<f32> = model.gradients().iter().map(|&&g| g).collect();
-            for (param, grad) in model.parameters_mut().into_iter().zip(grads.iter()) {
-                *param -= lr * grad;
-            }
+            total_loss += optimizer.step(&mut model, input, target, &loss_fn);
         }
         
         if epoch % 100 == 0 {
