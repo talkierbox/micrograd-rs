@@ -1,127 +1,157 @@
-use super::activation::ActivationType;
-use super::nn_module::NNModule;
+use super::linear::Linear;
+use super::activation::{ReLU, Tanh};
 
-pub struct MLPSpecification {
-    input_dim: usize,
-    hidden_dims: Vec<usize>,
-    output_dim: usize,
-    activation: ActivationType,
+// Type-erased layer so we can store different layer types in one Vec
+enum Layer {
+    Linear(Linear),
+    ReLU(ReLU),
+    Tanh(Tanh),
 }
 
-// Type-erased module that can store modules with different dimensions
-trait ErasedModule {
-    fn input_dim(&self) -> usize;
-    fn output_dim(&self) -> usize;
-    fn forward_dyn(&mut self, input: &[f32]) -> Vec<f32>;
-    fn backward_dyn(&mut self, grad_output: &[f32]) -> Vec<f32>;
-    fn zero_grad(&mut self);
-}
-
-// Wrapper to erase the const generics
-struct ModuleWrapper<const IN: usize, const OUT: usize> {
-    module: Box<dyn NNModule<IN, OUT>>,
-}
-
-impl<const IN: usize, const OUT: usize> ErasedModule for ModuleWrapper<IN, OUT> {
+impl Layer {
     fn input_dim(&self) -> usize {
-        IN
-    }
-
-    fn output_dim(&self) -> usize {
-        OUT
-    }
-
-    fn forward_dyn(&mut self, input: &[f32]) -> Vec<f32> {
-        assert_eq!(input.len(), IN, "Input length must match module input dimension");
-        let input_array: [f32; IN] = input.try_into().unwrap();
-        let output_array = self.module.forward(&input_array);
-        output_array.to_vec()
-    }
-
-    fn backward_dyn(&mut self, grad_output: &[f32]) -> Vec<f32> {
-        assert_eq!(grad_output.len(), OUT, "Gradient length must match module output dimension");
-        let grad_array: [f32; OUT] = grad_output.try_into().unwrap();
-        let input_grad_array = self.module.backward(&grad_array);
-        input_grad_array.to_vec()
-    }
-
-    fn zero_grad(&mut self) {
-        self.module.zero_grad();
-    }
-}
-
-pub struct MLP<const INPUT_DIM: usize, const OUTPUT_DIM: usize> {
-    components: Vec<Box<dyn ErasedModule>>,
-    spec: MLPSpecification   
-}
-
-impl <const INPUT_DIM: usize, const OUTPUT_DIM: usize> MLP<INPUT_DIM, OUTPUT_DIM> { 
-    pub fn new(spec: MLPSpecification) -> Self {
-        assert_eq!(spec.input_dim, INPUT_DIM, "Input dim must match const generic");
-        assert_eq!(spec.output_dim, OUTPUT_DIM, "Output dim must match const generic");
-
-        // Also make sure to implement the weight initialization using Xavier
-        todo!("Implement this!");
-    }
-
-    pub fn forward(&mut self, inputs: [f32; INPUT_DIM]) -> [f32; OUTPUT_DIM] {
-        NNModule::forward(self, &inputs)
-    }
-}
-
-// Allow the MLP to be used as a NNModule (i.e. to chain MLPs together)
-impl <const INPUT_DIM: usize, const OUTPUT_DIM: usize> NNModule<INPUT_DIM, OUTPUT_DIM> for MLP<INPUT_DIM, OUTPUT_DIM> {
-    fn _validate_dimensions(&self) {
-        // Validation is done at construction time
-    }
-
-    fn input_dim(&self) -> usize {
-        self._validate_dimensions();
-        INPUT_DIM
+        match self {
+            Layer::Linear(l) => l.input_dim,
+            Layer::ReLU(r) => r.dim,
+            Layer::Tanh(t) => t.dim,
+        }
     }
     
     fn output_dim(&self) -> usize {
-        self._validate_dimensions();
-        OUTPUT_DIM
+        match self {
+            Layer::Linear(l) => l.output_dim,
+            Layer::ReLU(r) => r.dim,
+            Layer::Tanh(t) => t.dim,
+        }
     }
+    
+    fn forward(&mut self, input: &[f32]) -> Vec<f32> {
+        match self {
+            Layer::Linear(l) => l.forward(input),
+            Layer::ReLU(r) => r.forward(input),
+            Layer::Tanh(t) => t.forward(input),
+        }
+    }
+    
+    fn backward(&mut self, grad: &[f32]) -> Vec<f32> {
+        match self {
+            Layer::Linear(l) => l.backward(grad),
+            Layer::ReLU(r) => r.backward(grad),
+            Layer::Tanh(t) => t.backward(grad),
+        }
+    }
+    
+    fn zero_grad(&mut self) {
+        match self {
+            Layer::Linear(l) => l.zero_grad(),
+            Layer::ReLU(r) => r.zero_grad(),
+            Layer::Tanh(t) => t.zero_grad(),
+        }
+    }
+}
 
-    fn forward(&mut self, input: &[f32; INPUT_DIM]) -> [f32; OUTPUT_DIM] {
-        self._validate_dimensions();
-        // Chain forward through all components
+// A sequential neural network with a PyTorch-like builder API.
+pub struct Sequential {
+    layers: Vec<Layer>,
+    current_dim: usize,
+}
+
+impl Sequential {
+    pub fn new(input_dim: usize) -> Self {
+        Self {
+            layers: Vec::new(),
+            current_dim: input_dim,
+        }
+    }
+    
+    pub fn linear(mut self, output_dim: usize) -> Self {
+        let layer = Linear::new(self.current_dim, output_dim);
+        self.layers.push(Layer::Linear(layer));
+        self.current_dim = output_dim;
+        self
+    }
+    
+    pub fn relu(mut self) -> Self {
+        let layer = ReLU::new(self.current_dim);
+        self.layers.push(Layer::ReLU(layer));
+        self
+    }
+    
+    pub fn tanh(mut self) -> Self {
+        let layer = Tanh::new(self.current_dim);
+        self.layers.push(Layer::Tanh(layer));
+        self
+    }
+    
+    pub fn forward(&mut self, input: &[f32]) -> Vec<f32> {
         let mut current = input.to_vec();
-        for component in self.components.iter_mut() {
-            // Validate that dimensions match
-            assert_eq!(current.len(), component.input_dim(), 
-                "Component input dimension mismatch during forward pass");
-            current = component.forward_dyn(&current);
+        for layer in &mut self.layers {
+            current = layer.forward(&current);
         }
-        // Convert final output to array
-        assert_eq!(current.len(), OUTPUT_DIM, 
-            "Final output dimension mismatch");
-        current.try_into().unwrap()
+        current
     }
-
-    fn backward(&mut self, grad_output: &[f32; OUTPUT_DIM]) -> [f32; INPUT_DIM] {
-        self._validate_dimensions();
-        // Chain backward through all components in reverse order
+    
+    pub fn backward(&mut self, grad_output: &[f32]) -> Vec<f32> {
         let mut current = grad_output.to_vec();
-        for component in self.components.iter_mut().rev() {
-            // Validate that dimensions match
-            assert_eq!(current.len(), component.output_dim(), 
-                "Component output dimension mismatch during backward pass");
-            current = component.backward_dyn(&current);
+        for layer in self.layers.iter_mut().rev() {
+            current = layer.backward(&current);
         }
-        // Convert final gradient to array
-        assert_eq!(current.len(), INPUT_DIM, 
-            "Final gradient dimension mismatch");
-        current.try_into().unwrap()
+        current
     }
-
-    fn zero_grad(&mut self) -> () {
-        self._validate_dimensions();
-        for component in self.components.iter_mut() {
-            component.zero_grad();
+    
+    pub fn zero_grad(&mut self) {
+        for layer in &mut self.layers {
+            layer.zero_grad();
         }
-        return ();
+    }
+    
+    pub fn input_dim(&self) -> usize {
+        self.layers.first().map(|l| l.input_dim()).unwrap_or(self.current_dim)
+    }
+    
+    pub fn output_dim(&self) -> usize {
+        self.current_dim
+    }
+    
+    // Get all trainable parameters (weights and biases from Linear layers)
+    pub fn parameters(&self) -> Vec<&f32> {
+        let mut params = Vec::new();
+        for layer in &self.layers {
+            if let Layer::Linear(l) = layer {
+                params.extend(l.weights.iter());
+                if l.bias_enabled {
+                    params.extend(l.biases.iter());
+                }
+            }
+        }
+        params
+    }
+    
+    // Get mutable references to all trainable parameters
+    pub fn parameters_mut(&mut self) -> Vec<&mut f32> {
+        let mut params = Vec::new();
+        for layer in &mut self.layers {
+            if let Layer::Linear(l) = layer {
+                params.extend(l.weights.iter_mut());
+                if l.bias_enabled {
+                    params.extend(l.biases.iter_mut());
+                }
+            }
+        }
+        params
+    }
+    
+    // Get all gradients corresponding to parameters
+    pub fn gradients(&self) -> Vec<&f32> {
+        let mut grads = Vec::new();
+        for layer in &self.layers {
+            if let Layer::Linear(l) = layer {
+                grads.extend(l.grad_weights.iter());
+                if l.bias_enabled {
+                    grads.extend(l.grad_biases.iter());
+                }
+            }
+        }
+        grads
     }
 }

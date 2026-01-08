@@ -1,47 +1,30 @@
-use crate::nn::nn_module::NNModule;
-
-pub struct Tanh<const DIM: usize> {
-    cached_input: Option<[f32; DIM]>,
+pub struct Tanh {
+    pub dim: usize,
+    cached_output: Option<Vec<f32>>,
 }
 
-impl<const DIM: usize> Tanh<DIM> {
-    pub fn new() -> Self {
-        Self { cached_input: None }
+impl Tanh {
+    pub fn new(dim: usize) -> Self {
+        Self { dim, cached_output: None }
     }
-}
-
-impl<const DIM: usize> NNModule<DIM, DIM> for Tanh<DIM> {
-    fn _validate_dimensions(&self) {}
-
-    fn input_dim(&self) -> usize {
-        DIM
-    }
-
-    fn output_dim(&self) -> usize {
-        DIM
-    }
-
-    fn forward(&mut self, input: &[f32; DIM]) -> [f32; DIM] {
-        self.cached_input = Some(*input);
-        let mut output = [0.0; DIM];
-        for i in 0..DIM {
-            output[i] = input[i].tanh();
-        }
+    
+    pub fn forward(&mut self, input: &[f32]) -> Vec<f32> {
+        assert_eq!(input.len(), self.dim, "Input dimension mismatch");
+        let output: Vec<f32> = input.iter().map(|&x| x.tanh()).collect();
+        self.cached_output = Some(output.clone());
         output
     }
-
-    fn backward(&mut self, grad_output: &[f32; DIM]) -> [f32; DIM] {
-        let input = self.cached_input.expect("Must call forward before backward");
-        let mut grad_input = [0.0; DIM];
-        for i in 0..DIM {
-            let t = input[i].tanh();
-            grad_input[i] = grad_output[i] * (1.0 - t * t);
-        }
-        grad_input
+    
+    pub fn backward(&mut self, grad_output: &[f32]) -> Vec<f32> {
+        let output = self.cached_output.as_ref()
+            .expect("Must call forward before backward");
+        // d/dx tanh(x) = 1 - tanh(x)^2
+        output.iter()
+            .zip(grad_output.iter())
+            .map(|(&t, &g)| g * (1.0 - t * t))
+            .collect()
     }
-
-    fn zero_grad(&mut self) {
-        self.cached_input = None;
+    
+    pub fn zero_grad(&mut self) {
     }
 }
-

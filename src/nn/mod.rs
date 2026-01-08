@@ -1,4 +1,5 @@
-pub mod linear;
-pub mod mlp;
-pub mod activation;
-pub mod nn_module;
+mod activation;
+mod linear;
+mod mlp;
+
+pub use mlp::Sequential;
